@@ -1,12 +1,16 @@
+import React, {
+  useCallback,
+  useRef,
+  useMemo,
+  useState,
+  useEffect
+} from "react";
 import Head from 'next/head'
-import { Container, Row, Col, Button, Card} from 'react-bootstrap'
+import { Container, Row, Col, Button, Card} from 'react-bootstrap';
 import { Canvas, useThree, extend } from "react-three-fiber";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
 import * as tf from "@tensorflow/tfjs";
-import data from "./data.json";
-//import Image from 'next/image'
-extend({ OrbitControls });
+import data from "./data.json"; //import Image from 'next/image'
 
 const numberOfPlanets = data.planets.length;
 
@@ -65,7 +69,6 @@ function SolarSystem({ dt = 0.1 }) {
   const { camera } = useThree();
   return (
     <group>
-      <orbitControls args={[camera]} />
       <ambientLight />
       <pointLight />
 
@@ -100,6 +103,31 @@ function SolarSystem({ dt = 0.1 }) {
       })}
     </group>
   );
+}
+
+function calcA(x) {
+  const unstackedX = tf.unstack(x);
+  const accelerations = Array(numberOfPlanets).fill(tf.tensor1d([0, 0, 0]));
+
+  for (let i = 0; i < numberOfPlanets; i++) {
+    const iX = unstackedX[i];
+    for (let j = i + 1; j < numberOfPlanets; j++) {
+      const jX = unstackedX[j];
+      const vector = tf.sub(jX, iX);
+      const r = tf.norm(vector);
+
+      const force = G.mul(masses[i])
+        .mul(masses[j])
+        .div(tf.pow(r, 3))
+        .mul(vector);
+      accelerations[i] = accelerations[i].add(force);
+      accelerations[j] = accelerations[j].sub(force);
+    }
+
+    accelerations[i] = accelerations[i].div(masses[i]);
+  }
+
+  return tf.stack(accelerations);
 }
 
 
@@ -152,6 +180,9 @@ export default function Home() {
           WHOLEASSBUTTONROW
         </Button>
       </Row>
+      <Canvas camera={{ position: [10, 0, 0] }}>
+        <SolarSystem />
+      </Canvas>
       </Container>
 
 
