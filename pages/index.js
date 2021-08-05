@@ -1,6 +1,106 @@
 import Head from 'next/head'
 import { Container, Row, Col, Button, Card} from 'react-bootstrap'
+import { Canvas, useThree, extend } from "react-three-fiber";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+
+import * as tf from "@tensorflow/tfjs";
+import data from "./data.json";
 //import Image from 'next/image'
+extend({ OrbitControls });
+
+const numberOfPlanets = data.planets.length;
+
+const xInitialArray = data.planets.map(planet => planet.x);
+const vInitialArray = data.planets.map(planet => planet.v);
+const masses = data.planets.map(planet => planet.m);
+
+const xInitial = tf.tensor2d(xInitialArray, [numberOfPlanets, 3]);
+const vInitial = tf.tensor2d(vInitialArray, [numberOfPlanets, 3]);
+const G = tf.scalar(data.G);
+
+const trajSize = 20;
+const initialTraj = xInitialArray.map(x => Array(trajSize).fill(x));
+
+function SolarSystem({ dt = 0.1 }) {
+  const [pos, setPos] = useState(xInitialArray);
+  const [traj, setTraj] = useState(initialTraj);
+  const x = useRef(xInitial);
+  const v = useRef(vInitial);
+  const nTimeStpes = useRef(0);
+  const dtTensor = useMemo(() => tf.scalar(dt), [dt]);
+  const compute = useCallback(() => {
+    const [newX, newV] = tf.tidy(() => {
+      const a = calcA(x.current);
+      const newX = x.current.add(tf.mul(v.current, dtTensor));
+      const newV = v.current.add(tf.mul(a, dtTensor));
+
+      return [newX, newV];
+    });
+
+    tf.dispose([x.current, v.current]);
+    x.current = newX;
+    v.current = newV;
+
+    newX.array().then(newPos => {
+      setPos(newPos);
+      if (nTimeStpes.current++ % 30 === 0) {
+        setTraj(traj =>
+          traj.map((points, i) =>
+            points.slice(-trajSize + 1).concat([newPos[i]])
+          )
+        );
+      }
+    });
+  }, [x, v, dtTensor]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      compute();
+    });
+  }, [pos, compute]);
+
+  const handleUpdateGeometry = useCallback(self => {
+    self.verticesNeedUpdate = true;
+  }, []);
+  const { camera } = useThree();
+  return (
+    <group>
+      <orbitControls args={[camera]} />
+      <ambientLight />
+      <pointLight />
+
+      {pos.map((ppos, i) => {
+        return (
+          <mesh key={`planet-${i}`} position={ppos}>
+            <sphereBufferGeometry
+              args={[i === 0 ? 0.2 : data.planets[i].r * 800, 30, 30]}
+              attach="geometry"
+            />
+            <meshStandardMaterial
+              color={data.planets[i].color}
+              attach="material"
+            />
+          </mesh>
+        );
+      })}
+      {traj.map((points, i) => {
+        return (
+          <line key={`line-${i}`}>
+            <geometry
+              attach="geometry"
+              vertices={points.map(point => new Vector3(...point))}
+              onUpdate={handleUpdateGeometry}
+            />
+            <lineBasicMaterial
+              color={data.planets[i].color}
+              attach="material"
+            />
+          </line>
+        );
+      })}
+    </group>
+  );
+}
 
 
 export default function Home() {
